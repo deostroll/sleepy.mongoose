@@ -13,11 +13,14 @@
 # limitations under the License.
 
 from bson.son import SON
-from pymongo import Connection, ASCENDING, DESCENDING
+from pymongo import MongoClient as Connection, ASCENDING, DESCENDING
 from pymongo.errors import ConnectionFailure, ConfigurationError, OperationFailure, AutoReconnect
 from bson import json_util
 
 import re
+
+import traceback
+
 try:
     import json
 except ImportError:
@@ -38,20 +41,21 @@ class MongoHandler:
             if len(mongos) == 1:
                 name = "default"
             else:
-                name = host.replace(".", "") 
+                name = host.replace(".", "")
                 name = name.replace(":", "")
 
             self._connect(args, out.ostream, name = name)
-        
+
     def _get_connection(self, name = None, uri='mongodb://localhost:27017'):
         if name == None:
             name = "default"
 
         if name in self.connections:
             return self.connections[name]
-        
+
         try:
-            connection = Connection(uri, network_timeout = 2)
+            connection = Connection(uri, socketTimeoutMS = 2)
+
         except (ConnectionFailure, ConfigurationError):
             return None
 
@@ -98,7 +102,7 @@ class MongoHandler:
         if getattr(obj, '__iter__', False) == False:
             out('{"ok" : 0, "errmsg" : "type is not iterable: %s"}' % str)
             return None
- 
+
         return obj
 
 
@@ -130,13 +134,13 @@ class MongoHandler:
             result['cmd'] = args.getvalue('cmd')
 
         out(json.dumps(result, default=json_util.default))
-        
+
     def _hello(self, args, out, name = None, db = None, collection = None):
-        out('{"ok" : 1, "msg" : "Uh, we had a slight weapons malfunction, but ' + 
+        out('{"ok" : 1, "msg" : "Uh, we had a slight weapons malfunction, but ' +
             'uh... everything\'s perfectly all right now. We\'re fine. We\'re ' +
             'all fine here now, thank you. How are you?"}')
         return
-        
+
     def _status(self, args, out, name = None, db = None, collection = None):
         result = {"ok" : 1, "connections" : {}}
 
@@ -144,7 +148,7 @@ class MongoHandler:
             result['connections'][name] = "%s:%d" % (conn.host, conn.port)
 
         out(json.dumps(result))
-    
+
     def _connect(self, args, out, name = None, db = None, collection = None):
         """
         connect to a mongod
@@ -197,12 +201,12 @@ class MongoHandler:
 
         if not 'password' in args:
             out('{"ok" : 0, "errmsg" : "password must be defined"}')
-        
+
         if not conn[db].authenticate(args.getvalue('username'), args.getvalue('password')):
             out('{"ok" : 0, "errmsg" : "authentication failed"}')
         else:
             out('{"ok" : 1}')
-        
+
     def _find(self, args, out, name = None, db = None, collection = None):
         """
         query the database.
@@ -219,7 +223,7 @@ class MongoHandler:
 
         if db == None or collection == None:
             out('{"ok" : 0, "errmsg" : "db and collection must be defined"}')
-            return            
+            return
 
         criteria = {}
         if 'criteria' in args:
@@ -241,7 +245,7 @@ class MongoHandler:
         if 'skip' in args:
             skip = int(args['skip'][0])
 
-        cursor = conn[db][collection].find(spec=criteria, fields=fields, limit=limit, skip=skip)
+        cursor = conn[db][collection].find(filter=criteria, projection=fields, limit=limit, skip=skip)
 
         sort = None
         if 'sort' in args:
@@ -276,7 +280,7 @@ class MongoHandler:
         batch_size = 15
         if 'batch_size' in args:
             batch_size = int(args['batch_size'][0])
-            
+
         self.__output_results(cursor, out, batch_size)
 
 
@@ -328,7 +332,7 @@ class MongoHandler:
         except StopIteration:
             # this is so stupid, there's no has_next?
             pass
-        
+
         out(json.dumps({"results" : batch, "id" : cursor.id, "ok" : 1}, default=json_util.default))
 
 
@@ -350,7 +354,7 @@ class MongoHandler:
             out('{"ok" : 0, "errmsg" : "db and collection must be defined"}')
             return
 
-        if "docs" not in args: 
+        if "docs" not in args:
             out('{"ok" : 0, "errmsg" : "missing docs"}')
             return
 
@@ -399,8 +403,8 @@ class MongoHandler:
         if db == None or collection == None:
             out('{"ok" : 0, "errmsg" : "db and collection must be defined"}')
             return
-        
-        if "criteria" not in args: 
+
+        if "criteria" not in args:
             out('{"ok" : 0, "errmsg" : "missing criteria"}')
             return
         criteria = self._get_son(args.getvalue('criteria'), out)
@@ -413,7 +417,7 @@ class MongoHandler:
         newobj = self._get_son(args.getvalue('newobj'), out)
         if newobj == None:
             return
-        
+
         upsert = False
         if "upsert" in args:
             upsert = bool(args.getvalue('upsert'))
@@ -443,13 +447,13 @@ class MongoHandler:
         if db == None or collection == None:
             out('{"ok" : 0, "errmsg" : "db and collection must be defined"}')
             return
-        
+
         criteria = {}
         if "criteria" in args:
             criteria = self._get_son(args.getvalue('criteria'), out)
             if criteria == None:
                 return
-        
+
         result = conn[db][collection].remove(criteria)
 
         self.__safety_check(args, out, conn[db])
@@ -478,7 +482,7 @@ class MongoHandler:
             method = "GET"
             if 'method' in request:
                 method = request['method']
-            
+
             db = None
             if 'db' in request:
                 db = request['db']
@@ -511,7 +515,7 @@ class MongoHandler:
 
         out("]")
 
-        
+
 class MongoFakeStream:
     def __init__(self):
         self.str = ""
